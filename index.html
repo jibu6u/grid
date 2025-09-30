@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>WebXR v17.5 • Seed Auto-Start • Grid Lines (L/R 색 변화)</title>
+<title>WebXR v17.5 • Grid Lines Color Cycle • L/R Background LFO</title>
 <style>
   *{box-sizing:border-box}
   html,body{margin:0;height:100%;background:#000;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans KR",sans-serif}
@@ -29,7 +29,7 @@
   #menuToggle:not(:checked)~#controls{opacity:0;transform:translateY(-8px);pointer-events:none}
 
   #controls{
-    position:fixed;right:14px;top:14px;z-index:7000;background:rgba(0,0,0,.9);color:#fff;width:660px;border-radius:14px;padding:12px;
+    position:fixed;right:14px;top:14px;z-index:7000;background:rgba(0,0,0,.9);color:#fff;width:680px;border-radius:14px;padding:12px;
     border:1px solid rgba(255,255,255,.15);backdrop-filter:blur(6px);transition:.18s;max-height:86vh;overflow:auto
   }
   #controls h3{margin:0 8px 8px;text-align:center;color:#82d0ff;font-size:15px}
@@ -67,7 +67,7 @@
     </div>
     <hr>
 
-    <div class="row"><label>배경 베이스 자동 전환 주기</label><input id="holdSec" type="range" min="3" max="20" step="1" value="8"><span id="holdSecVal" class="val">8s</span></div>
+    <div class="row"><label>베이스 자동 전환 주기</label><input id="holdSec" type="range" min="3" max="20" step="1" value="8"><span id="holdSecVal" class="val">8s</span></div>
     <p style="margin:0 0 8px 8px;"><small class="hint">※ 자동 전환은 <b>LFO 끝점</b>(가중치 0 근처)에서만 실행됩니다.</small></p>
 
     <h3>수렴/복귀 LFO (변조 대상)</h3>
@@ -90,12 +90,13 @@
     <div class="row"><label>우 채도</label><input id="satR"  type="range" min="0"   max="300" step="1" value="100"><span id="satRVal" class="val">1.00×</span></div>
     <div class="row"><label>우 리프트</label><input id="liftR" type="range" min="-50" max="50"  step="1" value="0"><span id="liftRVal" class="val">+0.00</span></div>
 
-    <h3>격자(Grid) 크기</h3>
+    <h3>격자(Grid)</h3>
     <div class="row"><label>가로 칸 수(열)</label><input id="gridCols" type="range" min="2" max="40" step="1" value="10"><span id="gridColsVal" class="val">10</span></div>
     <div class="row"><label>세로 칸 수(행)</label><input id="gridRows" type="range" min="2" max="40" step="1" value="8"><span id="gridRowsVal" class="val">8</span></div>
+    <div class="row"><label>선 색 변경 주기</label><input id="gridChangeSec" type="range" min="1" max="20" step="1" value="6"><span id="gridChangeSecVal" class="val">6s</span></div>
   </div>
 
-  <div id="hud">seed:— | XR:OFF | run:false | grid:10×8</div>
+  <div id="hud">seed:— | XR:OFF | run:false | grid:10×8 | lineΔ:6s</div>
 
 <script type="module">
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
@@ -108,7 +109,7 @@ const bindVal=(id,fmtf)=>{ const r=$(id), out=$(id+'Val'); const fn=()=>out.text
 ['gainL','gainR'].forEach(id=>bindVal(id,fmt.pct));
 ['satL','satR'].forEach(id=>bindVal(id,fmt.times));
 ['liftL','liftR'].forEach(id=>bindVal(id,fmt.lift));
-['holdSec','convergeSec','returnSec'].forEach(id=>bindVal(id,fmt.secs));
+['holdSec','convergeSec','returnSec','gridChangeSec'].forEach(id=>bindVal(id,fmt.secs));
 bindVal('gridCols',v=>String(v)); bindVal('gridRows',v=>String(v));
 
 /* ===== 상태 ===== */
@@ -204,17 +205,17 @@ const d2=new THREE.DirectionalLight(0xffffff,0.6); d2.position.set(-1.0,-0.6,-0.
 /* 레이어 활성화 */
 cam.layers.enable(1); cam.layers.enable(2);
 
-/* 화면 고정 배경(검정) — 이제 선 색만 변함 */
+/* 배경: 좌/우 각각 색 (격자 내부는 이 배경색이 보임) */
 const geoBG=new THREE.PlaneGeometry(4,4,1,1);
-const bgMatL=new THREE.MeshBasicMaterial({color:0x000000, depthTest:false, depthWrite:false});
-const bgMatR=new THREE.MeshBasicMaterial({color:0x000000, depthTest:false, depthWrite:false});
-const quadL=new THREE.Mesh(geoBG,bgMatL), quadR=new THREE.Mesh(geoBG,bgMatR);
-quadL.position.z=-0.5; quadR.position.z=-0.5;
+const matL=new THREE.MeshBasicMaterial({color:0x000000, depthTest:false, depthWrite:false});
+const matR=new THREE.MeshBasicMaterial({color:0x000000, depthTest:false, depthWrite:false});
+const quadL=new THREE.Mesh(geoBG,matL), quadR=new THREE.Mesh(geoBG,matR);
+quadL.position.z=-0.52; quadR.position.z=-0.52; /* 배경이 더 뒤 */
 quadL.layers.set(1); quadR.layers.set(2);
 cam.add(quadL); cam.add(quadR);
 
-/* ===== 격자(Grid) 선: 좌/우 각각 별도 라인, 색은 L/R에 맞게 변화 ===== */
-const GRID_W=3.6, GRID_H=2.2, GRID_Z=-0.49; // 카메라 앞쪽에 얇게
+/* ===== 격자(Grid) 선: 좌/우 각각 별도 라인 ===== */
+const GRID_W=3.6, GRID_H=2.2, GRID_Z=-0.49; // 배경보다 앞으로
 let gridCols=Number($('gridCols').value), gridRows=Number($('gridRows').value);
 
 const lineMatL = new THREE.LineBasicMaterial({color:0xffffff, depthTest:false, depthWrite:false, transparent:false});
@@ -223,18 +224,15 @@ const gridGroup=new THREE.Group(); gridGroup.renderOrder=2; cam.add(gridGroup);
 let gridLinesL=null, gridLinesR=null;
 
 function buildGrid(cols, rows){
-  // 제거
   if(gridLinesL){ gridGroup.remove(gridLinesL); gridLinesL.geometry.dispose(); gridLinesL=null; }
   if(gridLinesR){ gridGroup.remove(gridLinesR); gridLinesR.geometry.dispose(); gridLinesR=null; }
 
   const verts=[];
   const w=GRID_W, h=GRID_H, z=GRID_Z;
-  // 세로선 (열+1개)
   for(let i=0;i<=cols;i++){
     const x=-w/2 + w*(i/cols);
     verts.push(x,-h/2,z, x,h/2,z);
   }
-  // 가로선 (행+1개)
   for(let j=0;j<=rows;j++){
     const y=-h/2 + h*(j/rows);
     verts.push(-w/2,y,z, w/2,y,z);
@@ -267,7 +265,7 @@ function mapEyeLayers(){
 renderer.xr.addEventListener('sessionstart', ()=>{ mapEyeLayers(); setSeedMode(false); updateHUD(); });
 renderer.xr.addEventListener('sessionend',  ()=> updateHUD() );
 
-/* ===== 배경 베이스 & LFO (선 색 변조, 배경은 검정 유지) ===== */
+/* ===== 배경 베이스 & LFO (배경 색은 L/R별로 지속 변화) ===== */
 function readL(){ return { g:Number($('gainL').value), s:Number($('satL').value), l:Number($('liftL').value) }; }
 function readR(){ return { g:Number($('gainR').value), s:Number($('satR').value), l:Number($('liftR').value) }; }
 const lfo={ mode:'R_FIXED', start:performance.now(), conv:Number($('convergeSec').value), ret:Number($('returnSec').value) };
@@ -284,10 +282,11 @@ function applyFromBase(){
   else{ const Lg=L0.g*(1-w)+R0.g*w, Ls=L0.s*(1-w)+R0.s*w, Ll=L0.l*(1-w)+R0.l*w; LH=transform(base,Lg,Ls,Ll); RH=transform(base,R0.g,R0.s,R0.l); }
   const hexL=hslToHex(LH.h,LH.s,LH.l), hexR=hslToHex(RH.h,RH.s,RH.l);
   state.lastHexL=hexL; state.lastHexR=hexR;
-  // 배경은 항상 검정, 선 색만 업데이트
-  lineMatL.color.setHex(hexL);
-  lineMatR.color.setHex(hexR);
+  matL.color.setHex(hexL); // 격자 내부는 이 배경색이 보임 (좌)
+  matR.color.setHex(hexR); // (우)
 }
+
+/* LFO 끝점에서만 베이스 변경 */
 let baseTimer=null;
 function lfoAtEndpoint(th=0.02){ return lfoWeight()<=th; }
 function baseTick(){
@@ -297,6 +296,45 @@ function baseTick(){
 }
 function scheduleNext(){ if(baseTimer) clearTimeout(baseTimer); baseTimer=setTimeout(baseTick, Math.max(3,Number($('holdSec').value))*1000); }
 
+/* ===== 격자 선 색상: 예전 '박스' 대비 로직으로 주기적 변경 ===== */
+const COMP_RATIO=0.75, COMP_JITTER=25, SIMILAR_JITTER=22, SIMILAR_DELTA=18;
+const hueWrap=h=>{h%=360; if(h<0)h+=360; return h;};
+const hueDist=(a,b)=>{a=hueWrap(a); b=hueWrap(b); const d=Math.abs(a-b); return d>180?360-d:d;};
+function pickFromPaletteOrMake(targetH, sRange=[0.65,0.95], lRange=[0.55,0.78], maxDist=28){
+  if(state.palette.length){
+    let best=null,bestD=999;
+    for(const c of state.palette){ const d=hueDist(targetH,c.h); if(d<bestD){bestD=d;best=c;} }
+    if(best && bestD<=maxDist) return best.hex;
+  }
+  const rng=state.rng?state.rng():Math.random();
+  const h=hueWrap(targetH + (Math.random()*6-3));
+  const s=sRange[0]+(sRange[1]-sRange[0])*rng, l=lRange[0]+(lRange[1]-lRange[0])*rng;
+  return hslToHex(h,s,l);
+}
+function nextGridLineHex(){
+  const baseH = state.lastBase.h;
+  const r = state.rng?state.rng():Math.random();
+  let targetH;
+  if(r < COMP_RATIO) targetH = hueWrap(baseH + 180 + (Math.random()*2-1)*COMP_JITTER);
+  else { const s=(Math.random()<0.5?-1:1); targetH = hueWrap(baseH + s*(SIMILAR_DELTA + (Math.random()*2-1)*SIMILAR_JITTER)); }
+  return pickFromPaletteOrMake(targetH);
+}
+let gridLineTimer=null;
+function updateGridLineColor(){
+  const hex = nextGridLineHex();
+  lineMatL.color.setHex(hex);
+  lineMatR.color.setHex(hex); // 좌/우 선 색은 동일하게
+}
+function scheduleGridLineTimer(){
+  if(gridLineTimer) clearInterval(gridLineTimer);
+  const sec = Math.max(1, Number($('gridChangeSec').value));
+  gridLineTimer = setInterval(()=>{
+    if(state.running) updateGridLineColor();
+  }, sec*1000);
+  updateHUD();
+}
+$('gridChangeSec').addEventListener('input', scheduleGridLineTimer);
+
 /* ===== 시작/중지/리셋 ===== */
 let autoStartTid=null;
 function startCycle(){
@@ -304,9 +342,9 @@ function startCycle(){
   ensureRNG(); ptsToPalette();
   state.running=true; setSeedMode(false);
   state.lastBase = nextBaseHSL(); lfo.start=performance.now();
-  applyFromBase(); scheduleNext(); updateHUD();
+  applyFromBase(); scheduleNext(); scheduleGridLineTimer(); updateGridLineColor(); updateHUD();
 }
-function stopCycle(){ state.running=false; if(baseTimer) clearTimeout(baseTimer); baseTimer=null; updateHUD(); }
+function stopCycle(){ state.running=false; if(baseTimer) clearTimeout(baseTimer); baseTimer=null; if(gridLineTimer) clearInterval(gridLineTimer); updateHUD(); }
 $('startBtn').onclick=startCycle; $('stopBtn').onclick=stopCycle;
 $('nextBtn').onclick=()=>{ if(!state.running) ensureRNG(); state.lastBase=nextBaseHSL(); applyFromBase(); };
 $('resetBtn').onclick=()=>{ stopCycle(); state.points=[]; state.rng=null; state.palette=[]; drawPts(); setSeedMode(true); buildGrid(gridCols,gridRows); };
@@ -317,9 +355,11 @@ const vrBtn=VRButton.createButton(renderer);
 vrBtn.style.position='fixed'; vrBtn.style.right='16px'; vrBtn.style.top='16px'; vrBtn.style.zIndex='6000';
 document.body.appendChild(vrBtn);
 $('enterVR').onclick=()=> vrBtn.click();
+renderer.xr.addEventListener('sessionstart', ()=>{ mapEyeLayers(); setSeedMode(false); updateHUD(); });
+renderer.xr.addEventListener('sessionend',  ()=> updateHUD() );
 
 /* HUD + 루프 */
-function updateHUD(){ hud.textContent=`seed:${state.seed?('0x'+state.seed.toString(16)):'—'} | XR:${renderer.xr.isPresenting?'ON':'OFF'} | run:${state.running} | grid:${gridCols}×${gridRows}`; }
+function updateHUD(){ hud.textContent=`seed:${state.seed?('0x'+state.seed.toString(16)):'—'} | XR:${renderer.xr.isPresenting?'ON':'OFF'} | run:${state.running} | grid:${gridCols}×${gridRows} | lineΔ:${$('gridChangeSec').value}s`; }
 let lastT=0;
 renderer.setAnimationLoop((t)=>{
   const dt=(t-lastT)/1000; lastT=t||0;
